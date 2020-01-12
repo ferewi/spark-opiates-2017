@@ -1,6 +1,8 @@
 from pyspark import SparkContext, SparkConf # evtl obsolete
-from pyspark.sql import SparkSession
+from pyspark.sql import SQLContext,SparkSession
 spark = SparkSession.builder.appName('opioids2017').getOrCreate()
+sc = spark.sparkContext
+sqlContext = SQLContext(spark.sparkContext)
 
 # TODO: configure cluster if needed
 #confCluster = SparkConf()
@@ -25,7 +27,7 @@ taxdata.registerTempTable("taxdata")
 popdata.registerTempTable("popdata")
 statefips.registerTempTable("statefips")
 
-# Vorverarbeitung für Zip to FIPS mapping
+# Vorverarbeitung fuer Zip to FIPS mapping
 fipsdataRDD = fipsdataRDD.map(lambda str: [str[:5], str[23:25], str[25:28], str[28:]])
 fipsdata = sqlContext.createDataFrame(fipsdataRDD, ["zipcode", "state_abbr", "county_fips", "county_name"])
 fipsdata.registerTempTable("fipsdata")
@@ -69,7 +71,7 @@ presc = spark.sql("""
 """)
 presc.registerTempTable("presc")
 
-# ergänze ZIP Codes aus npidata
+# ergaenze ZIP Codes aus npidata
 presc = spark.sql("""
     SELECT
         p.*,
@@ -120,7 +122,6 @@ merged = spark.sql("""
         pp.fips,
         SUM(pp.population)/IF(COUNT(t.agi_stub) > 0, COUNT(t.agi_stub), 1) as population,
         SUM(t.N1) as num_tax_returns,
-        IF(SUM(t.N1) > SUM(pp.population)/IF(COUNT(t.agi_stub) > 0, COUNT(t.agi_stub), 1), "X", null) as pop_underest,
         SUM(t.A00100) as total_agi,
         SUM(t.A00100)/SUM(t.N1) as mean_agi,
         CASE
@@ -132,8 +133,8 @@ merged = spark.sql("""
             WHEN SUM(t.A00100)/SUM(t.N1) >= 200 THEN 6
             ELSE 0
         END as agi_group,
-        SUM(p.claim_count)/IF(COUNT(t.agi_stub) > 0, COUNT(t.agi_stub), 1) as claim_count,
-        SUM(p.claim_count)/SUM(pp.population) as claim_rate
+        COALESCE(SUM(p.claim_count)/IF(COUNT(t.agi_stub) > 0, COUNT(t.agi_stub), 1), -1) as claim_count,
+        COALESCE(SUM(p.claim_count)/SUM(pp.population),-1) as claim_rate
     FROM popdata as pp
     LEFT JOIN taxdata as t ON pp.fips = t.fips
     LEFT JOIN presc as p ON pp.fips = p.fips
@@ -146,7 +147,7 @@ merged.toPandas().to_csv("results_by_fips.csv", encoding="UTF-8")
 # zip level
 #spark.sql("SELECT STATE as state, SUBSTR(zipcode, 0, 3) as zip, SUM(N1) as tax_returns FROM taxdata GROUP BY state, SUBSTR(zipcode, 0, 3) ")
 
-# Dataframe für Regressionsmodell
+# Dataframe fuer Regressionsmodell
 #spark.sql("SELECT state, SUBSTR(pzip, 0, 3) as zip FROM presc INNER JOIN")
 # ----------------------------------
 
